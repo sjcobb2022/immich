@@ -32,111 +32,73 @@ function mapNonEmpty<T, U>(
   return arr.map(item => fn(item)) as unknown as readonly [U, ...U[]];
 }
 
-export const getKyselyConfig = (connection: DatabaseConnectionParams): KyselyConfig => {
-  return {
-    dialect: new PostgresJSDialect({
-      postgres: createPostgres({
-        connection,
-        onNotice: (notice: Notice) => {
-          if (notice['severity'] !== 'NOTICE') {
-            console.warn('Postgres notice:', notice);
-          }
-        },
-      }),
-    }),
-    log(event) {
-      if (event.level === 'error') {
-        if (isAssetChecksumConstraint(event.error)) {
-          return;
-        }
 
-        console.error('Query failed :', {
-          durationMs: event.queryDurationMillis,
-          error: event.error,
-          sql: event.query.sql,
-          params: event.query.parameters,
-        });
-      }
-    },
-  };
+const createNotice = (label: string) => (notice: Notice) => {
+  if (notice.severity !== 'NOTICE') {
+    console.warn(`${label} Postgres notice:`, notice);
+  }
 };
 
-export const getSingleInstanceKyselyConfig = (connection: DatabaseConnectionParams): KyselyConfig => {
-  return {
-    dialect: new PostgresJSDialect({
-      postgres: createPostgres({
-        connection,
-        onNotice: (notice: Notice) => {
-          if (notice['severity'] !== 'NOTICE') {
-            console.warn('Postgres notice:', notice);
-          }
-        },
-      }),
-    }),
-    log(event) {
-      if (event.level === 'error') {
-        if (isAssetChecksumConstraint(event.error)) {
-          return;
-        }
-
-        console.error('Query failed :', {
-          durationMs: event.queryDurationMillis,
-          error: event.error,
-          sql: event.query.sql,
-          params: event.query.parameters,
-        });
-      }
-    },
-  };
+const queryLogger: KyselyConfig['log'] = (event) => {
+  if (event.level === 'error') {
+    if (isAssetChecksumConstraint(event.error)) {
+      return;
+    }
+    console.error('Query failed :', {
+      durationMs: event.queryDurationMillis,
+      error: event.error,
+      sql: event.query.sql,
+      params: event.query.parameters,
+    });
+  }
 };
 
-export const getReplicatedKyselyConfig = (primary: DatabaseConnectionParams, replicas: [DatabaseConnectionParams, ...DatabaseConnectionParams[]]): KyselyConfig => {
-  const primaryDialect = new PostgresJSDialect({
+const createDialect = (connection: DatabaseConnectionParams, label = 'Postgres') =>
+  new PostgresJSDialect({
     postgres: createPostgres({
-      connection: primary,
-      onNotice: (notice: Notice) => {
-        if (notice['severity'] !== 'NOTICE') {
-          console.warn('Primary Postgres notice:', notice);
-        }
-      },
+      connection,
+      onNotice: createNotice(label),
     }),
   });
 
-  const replicaDialects = mapNonEmpty(replicas, rep =>
-    new PostgresJSDialect({
-      postgres: createPostgres({
-        connection: rep,
-        onNotice: (notice: Notice) => {
-          if (notice.severity !== 'NOTICE') {
-            console.warn('Primary Postgres notice:', notice);
-          }
-        },
-      }),
-    }),
-  );
+export const getKyselyConfig = (
+  primary: DatabaseConnectionParams,
+  enableReplicas?: boolean,
+  replicas?: [DatabaseConnectionParams, ...DatabaseConnectionParams[]],
+): KyselyConfig => {
+  if (!enableReplicas) {
+    return getSingleInstanceKyselyConfig(primary);
+  }
+
+  if (!replicas) {
+    throw new Error('enableReplicas is true but no replicas were configured');
+  }
+
+  return getReplicatedKyselyConfig(primary, replicas);
+};
+
+export const getSingleInstanceKyselyConfig = (connection: DatabaseConnectionParams): KyselyConfig => ({
+  dialect: createDialect(connection),
+  log: queryLogger,
+});
+
+export const getReplicatedKyselyConfig = (
+  primary: DatabaseConnectionParams,
+  replicas: [DatabaseConnectionParams, ...DatabaseConnectionParams[]],
+): KyselyConfig => {
+  const primaryDialect = createDialect(primary, 'Primary');
+  const replicaDialects = mapNonEmpty(replicas, (rep) => createDialect(rep, 'Replica'));
 
   return {
     dialect: new KyselyReplicationDialect({
       primaryDialect,
       replicaDialects,
-      replicaStrategy: new RoundRobinReplicaStrategy({ onTransaction: 'error' })
+      replicaStrategy: new RoundRobinReplicaStrategy({ onTransaction: 'error' }),
     }),
-    log(event) {
-      if (event.level === 'error') {
-        if (isAssetChecksumConstraint(event.error)) {
-          return;
-        }
-
-        console.error('Query failed :', {
-          durationMs: event.queryDurationMillis,
-          error: event.error,
-          sql: event.query.sql,
-          params: event.query.parameters,
-        });
-      }
-    },
+    log: queryLogger,
   };
-}
+};
+
 
 export const asUuid = (id: string | Expression<string>) => sql<string>`${id}::uuid`;
 

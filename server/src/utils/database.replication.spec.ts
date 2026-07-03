@@ -8,11 +8,13 @@ const { mockCreatePostgres, mockPostgresJSDialect, recordedCalls } = vi.hoisted(
 
   const createRecordingDialect = (label: string): Dialect => {
     const connection: DatabaseConnection = {
+      // eslint-disable-next-line @typescript-eslint/require-await
       async executeQuery<R>(_compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
         recordedCalls.push(label);
         return { rows: [] } as any;
       },
 
+      // eslint-disable-next-line require-yield, @typescript-eslint/require-await
       async *streamQuery() {
         recordedCalls.push(label);
       },
@@ -21,18 +23,22 @@ const { mockCreatePostgres, mockPostgresJSDialect, recordedCalls } = vi.hoisted(
     const driver: Driver = {
       async init() {},
 
+      // eslint-disable-next-line @typescript-eslint/require-await
       async acquireConnection() {
         return connection;
       },
 
+      // eslint-disable-next-line @typescript-eslint/require-await
       async beginTransaction() {
         recordedCalls.push(`${label}:begin`);
       },
 
+      // eslint-disable-next-line @typescript-eslint/require-await
       async commitTransaction() {
         recordedCalls.push(`${label}:commit`);
       },
 
+      // eslint-disable-next-line @typescript-eslint/require-await
       async rollbackTransaction() {
         recordedCalls.push(`${label}:rollback`);
       },

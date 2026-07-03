@@ -129,16 +129,16 @@ export const EnvSchema = z
   })
   .loose()
   .transform((env, ctx) => {
-    let parsed = ReplicasFromEnvSchema.safeParse(env);
+    const parsed = ReplicasFromEnvSchema.safeParse(env);
 
     if (!parsed.success) {
-      parsed.error.issues.forEach((e) => {
+      for (const _ of parsed.error.issues) {
         ctx.addIssue({
           code: 'custom',
           path: ['DB_REPLICAS'],
           message: 'Invalid DB replica configuration',
         });
-      });
+      }
 
       return {
         ...env,

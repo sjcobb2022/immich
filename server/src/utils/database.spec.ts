@@ -1,5 +1,5 @@
-import { getKyselyConfig, getReplicatedKyselyConfig, getSingleInstanceKyselyConfig } from 'src/utils/database';
 import type { KyselyConfig, LogEvent } from 'kysely';
+import { getKyselyConfig, getReplicatedKyselyConfig, getSingleInstanceKyselyConfig } from 'src/utils/database';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const asLogFn = (log: KyselyConfig['log']): ((event: LogEvent) => void | Promise<void>) => {
@@ -20,7 +20,9 @@ const { mockCreatePostgres, mockPostgresJSDialect, mockKyselyReplicationDialect,
 vi.mock('@immich/sql-tools', () => ({ createPostgres: mockCreatePostgres }));
 vi.mock('kysely-postgres-js', () => ({ PostgresJSDialect: mockPostgresJSDialect }));
 vi.mock('kysely-replication', () => ({ KyselyReplicationDialect: mockKyselyReplicationDialect }));
-vi.mock('kysely-replication/strategy/round-robin', () => ({ RoundRobinReplicaStrategy: mockRoundRobinReplicaStrategy }));
+vi.mock('kysely-replication/strategy/round-robin', () => ({
+  RoundRobinReplicaStrategy: mockRoundRobinReplicaStrategy,
+}));
 
 const primary = { host: 'primary-host' } as any;
 const replicaA = { host: 'replica-a' } as any;

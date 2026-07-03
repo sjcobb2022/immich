@@ -119,7 +119,7 @@ describe('EnvSchema', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.issues[0]).toMatchObject({
-        message: "Invalid DB replica configuration"
+        message: 'Invalid DB replica configuration',
       });
     });
 

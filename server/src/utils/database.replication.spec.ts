@@ -1,13 +1,12 @@
-import { getReplicatedKyselyConfig } from 'src/utils/database';
-import { Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler } from 'kysely';
 import type { CompiledQuery, DatabaseConnection, Dialect, Driver, QueryResult } from 'kysely';
+import { Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler } from 'kysely';
+import { getReplicatedKyselyConfig } from 'src/utils/database';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockCreatePostgres, mockPostgresJSDialect, recordedCalls } = vi.hoisted(() => {
   const recordedCalls: string[] = [];
 
   const createRecordingDialect = (label: string): Dialect => {
-
     const connection: DatabaseConnection = {
       async executeQuery<R>(_compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
         recordedCalls.push(label);

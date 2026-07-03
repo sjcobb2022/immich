@@ -150,7 +150,7 @@ describe('config.log (query logger)', () => {
   if (typeof config.log === 'function') {
     await config.log({
       level: 'error',
-      error: new Error('boom'),
+      error: new Error('error'),
       queryDurationMillis: 12,
       query: {
         query: 'select 1',

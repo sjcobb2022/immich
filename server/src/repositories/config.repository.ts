@@ -250,10 +250,10 @@ const getEnv = (): EnvData => {
       : {
           connectionType: 'parts',
           host: r.host,
-          port: r.port,
-          username: r.username,
-          password: r.password,
-          database: r.databaseName,
+          port: r.port || 5432,
+          username: r.username || 'postgres',
+          password: r.password || 'postgres',
+          database: r.databaseName || 'immich',
           ssl: r.sslMode || undefined,
         },
   );

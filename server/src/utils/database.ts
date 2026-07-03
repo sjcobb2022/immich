@@ -22,6 +22,15 @@ import { AssetSearchBuilderOptions } from 'src/repositories/search.repository';
 import { DB } from 'src/schema';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table';
 import { AudioStreamInfo, VectorExtension, VideoFormat, VideoPacketInfo, VideoStreamInfo } from 'src/types';
+import { KyselyReplicationDialect } from 'kysely-replication'
+import { RoundRobinReplicaStrategy } from 'kysely-replication/strategy/round-robin'
+
+function mapNonEmpty<T, U>(
+  arr: readonly [T, ...T[]],
+  fn: (item: T) => U,
+): readonly [U, ...U[]] {
+  return arr.map(item => fn(item)) as unknown as readonly [U, ...U[]];
+}
 
 export const getKyselyConfig = (connection: DatabaseConnectionParams): KyselyConfig => {
   return {
@@ -51,6 +60,83 @@ export const getKyselyConfig = (connection: DatabaseConnectionParams): KyselyCon
     },
   };
 };
+
+export const getSingleInstanceKyselyConfig = (connection: DatabaseConnectionParams): KyselyConfig => {
+  return {
+    dialect: new PostgresJSDialect({
+      postgres: createPostgres({
+        connection,
+        onNotice: (notice: Notice) => {
+          if (notice['severity'] !== 'NOTICE') {
+            console.warn('Postgres notice:', notice);
+          }
+        },
+      }),
+    }),
+    log(event) {
+      if (event.level === 'error') {
+        if (isAssetChecksumConstraint(event.error)) {
+          return;
+        }
+
+        console.error('Query failed :', {
+          durationMs: event.queryDurationMillis,
+          error: event.error,
+          sql: event.query.sql,
+          params: event.query.parameters,
+        });
+      }
+    },
+  };
+};
+
+export const getReplicatedKyselyConfig = (primary: DatabaseConnectionParams, replicas: [DatabaseConnectionParams, ...DatabaseConnectionParams[]]): KyselyConfig => {
+  const primaryDialect = new PostgresJSDialect({
+    postgres: createPostgres({
+      connection: primary,
+      onNotice: (notice: Notice) => {
+        if (notice['severity'] !== 'NOTICE') {
+          console.warn('Primary Postgres notice:', notice);
+        }
+      },
+    }),
+  });
+
+  const replicaDialects = mapNonEmpty(replicas, rep =>
+    new PostgresJSDialect({
+      postgres: createPostgres({
+        connection: rep,
+        onNotice: (notice: Notice) => {
+          if (notice.severity !== 'NOTICE') {
+            console.warn('Primary Postgres notice:', notice);
+          }
+        },
+      }),
+    }),
+  );
+
+  return {
+    dialect: new KyselyReplicationDialect({
+      primaryDialect,
+      replicaDialects,
+      replicaStrategy: new RoundRobinReplicaStrategy({ onTransaction: 'error' })
+    }),
+    log(event) {
+      if (event.level === 'error') {
+        if (isAssetChecksumConstraint(event.error)) {
+          return;
+        }
+
+        console.error('Query failed :', {
+          durationMs: event.queryDurationMillis,
+          error: event.error,
+          sql: event.query.sql,
+          params: event.query.parameters,
+        });
+      }
+    },
+  };
+}
 
 export const asUuid = (id: string | Expression<string>) => sql<string>`${id}::uuid`;
 

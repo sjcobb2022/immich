@@ -1,250 +1,179 @@
 import { getKyselyConfig, getReplicatedKyselyConfig, getSingleInstanceKyselyConfig } from 'src/utils/database';
+import type { KyselyConfig, LogEvent } from 'kysely';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// --- Mocks for external dialect/driver dependencies ---------------------------------------
-
-const mockCreatePostgres = vi.fn((opts: any) => ({ __postgresInstance: true, opts }));
-vi.mock('@immich/sql-tools', () => ({
-  createPostgres: (opts: any) => mockCreatePostgres(opts),
-}));
-
-class MockPostgresJSDialect {
-  public options: any;
-  constructor(options: any) {
-    this.options = options;
+const asLogFn = (log: KyselyConfig['log']): ((event: LogEvent) => void | Promise<void>) => {
+  if (typeof log !== 'function') {
+    throw new TypeError('Expected config.log to be a function');
   }
-}
-vi.mock('kysely-postgres-js', () => ({
-  PostgresJSDialect: vi.fn().mockImplementation((options: any) => new MockPostgresJSDialect(options)),
-}));
+  return log;
+};
 
-class MockKyselyReplicationDialect {
-  public options: any;
-  constructor(options: any) {
-    this.options = options;
-  }
-}
-vi.mock('kysely-replication', () => ({
-  KyselyReplicationDialect: vi.fn().mockImplementation((options: any) => new MockKyselyReplicationDialect(options)),
-}));
+const { mockCreatePostgres, mockPostgresJSDialect, mockKyselyReplicationDialect, mockRoundRobinReplicaStrategy } =
+  vi.hoisted(() => ({
+    mockCreatePostgres: vi.fn((options: any) => ({ kind: 'postgres', options })),
+    mockPostgresJSDialect: vi.fn((options: any) => ({ kind: 'PostgresJSDialect', options })),
+    mockKyselyReplicationDialect: vi.fn((options: any) => ({ kind: 'KyselyReplicationDialect', options })),
+    mockRoundRobinReplicaStrategy: vi.fn((options: any) => ({ kind: 'RoundRobinReplicaStrategy', options })),
+  }));
 
-class MockRoundRobinReplicaStrategy {
-  public options: any;
-  constructor(options: any) {
-    this.options = options;
-  }
-}
-vi.mock('kysely-replication/strategy/round-robin', () => ({
-  RoundRobinReplicaStrategy: vi.fn().mockImplementation((options: any) => new MockRoundRobinReplicaStrategy(options)),
-}));
+vi.mock('@immich/sql-tools', () => ({ createPostgres: mockCreatePostgres }));
+vi.mock('kysely-postgres-js', () => ({ PostgresJSDialect: mockPostgresJSDialect }));
+vi.mock('kysely-replication', () => ({ KyselyReplicationDialect: mockKyselyReplicationDialect }));
+vi.mock('kysely-replication/strategy/round-robin', () => ({ RoundRobinReplicaStrategy: mockRoundRobinReplicaStrategy }));
 
-// --- Fixtures -------------------------------------------------------------------------------
+const primary = { host: 'primary-host' } as any;
+const replicaA = { host: 'replica-a' } as any;
+const replicaB = { host: 'replica-b' } as any;
 
-const primaryConnection = { host: 'primary-host' } as any;
-const replicaConnectionA = { host: 'replica-a' } as any;
-const replicaConnectionB = { host: 'replica-b' } as any;
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('getSingleInstanceKyselyConfig', () => {
-  beforeEach(() => vi.clearAllMocks());
+  it('wraps the connection in a PostgresJSDialect', () => {
+    const config = getSingleInstanceKyselyConfig(primary);
 
-  it('should build a config with a single PostgresJSDialect wrapping the given connection', () => {
-    const config = getSingleInstanceKyselyConfig(primaryConnection);
-
-    expect(config.dialect).toBeInstanceOf(MockPostgresJSDialect);
-    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: primaryConnection }));
+    expect(config.dialect).toMatchObject({ kind: 'PostgresJSDialect' });
+    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: primary }));
   });
 
-  it('should attach a log function to the config', () => {
-    const config = getSingleInstanceKyselyConfig(primaryConnection);
-    expect(typeof config.log).toBe('function');
+  it('attaches a log function', () => {
+    expect(typeof getSingleInstanceKyselyConfig(primary).log).toBe('function');
   });
 });
 
 describe('getReplicatedKyselyConfig', () => {
-  beforeEach(() => vi.clearAllMocks());
+  it('wraps one primary and N replica dialects in a KyselyReplicationDialect', () => {
+    const config = getReplicatedKyselyConfig(primary, [replicaA, replicaB]);
+    const { options } = config.dialect as any;
 
-  it('should build a KyselyReplicationDialect with one primary dialect', () => {
-    const config = getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA]);
-    const dialect = config.dialect as unknown as MockKyselyReplicationDialect;
-
-    expect(dialect).toBeInstanceOf(MockKyselyReplicationDialect);
-    expect(dialect.options.primaryDialect).toBeInstanceOf(MockPostgresJSDialect);
+    expect(config.dialect).toMatchObject({ kind: 'KyselyReplicationDialect' });
+    expect(options.primaryDialect).toMatchObject({ kind: 'PostgresJSDialect' });
+    expect(options.replicaDialects).toHaveLength(2);
+    expect(options.replicaDialects[0]).toMatchObject({ kind: 'PostgresJSDialect' });
   });
 
-  it('should build one replica dialect per replica connection provided', () => {
-    const config = getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA, replicaConnectionB]);
-    const dialect = config.dialect as unknown as MockKyselyReplicationDialect;
+  it('uses a round-robin strategy that errors on concurrent transactions', () => {
+    const config = getReplicatedKyselyConfig(primary, [replicaA]);
+    const { options } = config.dialect as any;
 
-    expect(dialect.options.replicaDialects).toHaveLength(2);
-    for (const replicaDialect of dialect.options.replicaDialects) {
-      expect(replicaDialect).toBeInstanceOf(MockPostgresJSDialect);
-    }
+    expect(options.replicaStrategy).toMatchObject({
+      kind: 'RoundRobinReplicaStrategy',
+      options: { onTransaction: 'error' },
+    });
   });
 
-  it('should configure the replica strategy as round robin with onTransaction: error', () => {
-    const config = getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA]);
-    const dialect = config.dialect as unknown as MockKyselyReplicationDialect;
+  it('opens a postgres connection for the primary and each replica', () => {
+    getReplicatedKyselyConfig(primary, [replicaA, replicaB]);
 
-    expect(dialect.options.replicaStrategy).toBeInstanceOf(MockRoundRobinReplicaStrategy);
-    expect(dialect.options.replicaStrategy.options).toEqual({ onTransaction: 'error' });
+    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: primary }));
+    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: replicaA }));
+    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: replicaB }));
   });
 
-  it('should pass the primary connection through to createPostgres', () => {
-    getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA]);
-
-    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: primaryConnection }));
-  });
-
-  it('should pass each replica connection through to createPostgres', () => {
-    getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA, replicaConnectionB]);
-
-    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: replicaConnectionA }));
-    expect(mockCreatePostgres).toHaveBeenCalledWith(expect.objectContaining({ connection: replicaConnectionB }));
-  });
-
-  it('should attach a log function to the config', () => {
-    const config = getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA]);
-    expect(typeof config.log).toBe('function');
+  it('attaches a log function', () => {
+    expect(typeof getReplicatedKyselyConfig(primary, [replicaA]).log).toBe('function');
   });
 });
 
 describe('getKyselyConfig', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('should return a single-instance config when enableReplicas is not set', () => {
-    const config = getKyselyConfig(primaryConnection);
-    expect(config.dialect).toBeInstanceOf(MockPostgresJSDialect);
+  it('returns a single-instance config by default', () => {
+    expect(getKyselyConfig(primary).dialect).toMatchObject({ kind: 'PostgresJSDialect' });
   });
 
-  it('should return a single-instance config when enableReplicas is false', () => {
-    const config = getKyselyConfig(primaryConnection, false);
-    expect(config.dialect).toBeInstanceOf(MockPostgresJSDialect);
+  it('returns a single-instance config when enableReplicas is false', () => {
+    expect(getKyselyConfig(primary, false).dialect).toMatchObject({ kind: 'PostgresJSDialect' });
   });
 
-  it('should throw if enableReplicas is true but no replicas are provided', () => {
-    expect(() => getKyselyConfig(primaryConnection, true)).toThrow(
-      'enableReplicas is true but no replicas were configured',
-    );
+  it('throws when enableReplicas is true but no replicas are given', () => {
+    expect(() => getKyselyConfig(primary, true)).toThrow('enableReplicas is true but no replicas were configured');
   });
 
-  it('should return a replicated config when enableReplicas is true and replicas are provided', () => {
-    const config = getKyselyConfig(primaryConnection, true, [replicaConnectionA]);
-    expect(config.dialect).toBeInstanceOf(MockKyselyReplicationDialect);
-  });
-
-  it('should return a replicated config with multiple replicas', () => {
-    const config = getKyselyConfig(primaryConnection, true, [replicaConnectionA, replicaConnectionB]);
-    const dialect = config.dialect as unknown as MockKyselyReplicationDialect;
-
-    expect(dialect.options.replicaDialects).toHaveLength(2);
+  it('returns a replicated config when replicas are given', () => {
+    const config = getKyselyConfig(primary, true, [replicaA, replicaB]);
+    expect(config.dialect).toMatchObject({ kind: 'KyselyReplicationDialect' });
   });
 });
 
-describe('config.log (query logger)', () => {
-  beforeEach(() => vi.clearAllMocks());
+describe('query logger', () => {
+  it('logs query errors to the console', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = asLogFn(getSingleInstanceKyselyConfig(primary).log);
 
-  it('should log an error event to the console', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const config = getSingleInstanceKyselyConfig(primaryConnection);
+    await log({
+      level: 'error',
+      error: new Error('boom'),
+      queryDurationMillis: 12,
+      query: { query: 'select 1', queryId: 'q1', parameters: [] } as any,
+    });
 
-    if (typeof config.log === 'function') {
-      await config.log({
-        level: 'error',
-        error: new Error('error'),
-        queryDurationMillis: 12,
-        query: {
-          query: 'select 1',
-          queryId: 'test-query',
-          parameters: [],
-        } as any,
-      });
-    }
-
-    expect(consoleErrorSpy).toHaveBeenCalledOnce();
-    consoleErrorSpy.mockRestore();
+    expect(consoleError).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
   });
 
-  it('should suppress logging for asset checksum constraint violations', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const config = getSingleInstanceKyselyConfig(primaryConnection);
+  it('suppresses asset checksum constraint violations', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = asLogFn(getSingleInstanceKyselyConfig(primary).log);
 
-    if (typeof config.log === 'function') {
-      await config.log({
-        level: 'error',
-        error: { constraint_name: 'UQ_assets_owner_checksum' },
-        queryDurationMillis: 12,
-        query: {
-          query: 'insert into asset ...',
-          queryId: 'test-query',
-          parameters: [],
-        } as any,
-      });
-    }
+    await log({
+      level: 'error',
+      error: { constraint_name: 'UQ_assets_owner_checksum' },
+      queryDurationMillis: 12,
+      query: { query: 'insert into asset ...', queryId: 'q1', parameters: [] } as any,
+    });
 
-    expect(consoleErrorSpy).not.toHaveBeenCalled();
-    consoleErrorSpy.mockRestore();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
-  it('should not log anything for non-error level events', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const config = getSingleInstanceKyselyConfig(primaryConnection);
+  it('ignores non-error events', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = asLogFn(getSingleInstanceKyselyConfig(primary).log);
 
-    if (typeof config.log === 'function') {
-      await config.log({
-        level: 'query',
-        queryDurationMillis: 12,
-        query: {
-          query: 'select 1',
-          queryId: 'test-query',
-          parameters: [],
-        } as any,
-      });
-    }
+    await log({
+      level: 'query',
+      queryDurationMillis: 12,
+      query: { query: 'select 1', queryId: 'q1', parameters: [] } as any,
+    });
 
-    expect(consoleErrorSpy).not.toHaveBeenCalled();
-    consoleErrorSpy.mockRestore();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
 
 describe('notice handling', () => {
-  beforeEach(() => vi.clearAllMocks());
+  it('labels notices by connection role', () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getReplicatedKyselyConfig(primary, [replicaA]);
 
-  it('should label notices from the primary connection as "Primary"', () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA]);
+    const [primaryOptions] = mockCreatePostgres.mock.calls.find((call) => call[0].connection === primary)!;
+    const [replicaOptions] = mockCreatePostgres.mock.calls.find((call) => call[0].connection === replicaA)!;
 
-    const primaryCall = mockCreatePostgres.mock.calls.find((call) => call[0].connection === primaryConnection);
-    primaryCall![0].onNotice({ severity: 'WARNING', message: 'careful' });
+    primaryOptions.onNotice({ severity: 'WARNING', message: 'careful' });
+    replicaOptions.onNotice({ severity: 'WARNING', message: 'careful' });
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
+    expect(consoleWarn).toHaveBeenNthCalledWith(
+      1,
       'Primary Postgres notice:',
       expect.objectContaining({ severity: 'WARNING' }),
     );
-    consoleWarnSpy.mockRestore();
-  });
-
-  it('should label notices from replica connections as "Replica"', () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    getReplicatedKyselyConfig(primaryConnection, [replicaConnectionA]);
-
-    const replicaCall = mockCreatePostgres.mock.calls.find((call) => call[0].connection === replicaConnectionA);
-    replicaCall![0].onNotice({ severity: 'WARNING', message: 'careful' });
-
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
+    expect(consoleWarn).toHaveBeenNthCalledWith(
+      2,
       'Replica Postgres notice:',
       expect.objectContaining({ severity: 'WARNING' }),
     );
-    consoleWarnSpy.mockRestore();
+    consoleWarn.mockRestore();
   });
 
-  it('should not warn for plain NOTICE severity', () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    getSingleInstanceKyselyConfig(primaryConnection);
+  it('ignores plain NOTICE severity', () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getSingleInstanceKyselyConfig(primary);
 
-    const call = mockCreatePostgres.mock.calls[0];
-    call[0].onNotice({ severity: 'NOTICE', message: 'fyi' });
+    const [options] = mockCreatePostgres.mock.calls[0];
+    options.onNotice({ severity: 'NOTICE', message: 'fyi' });
 
-    expect(consoleWarnSpy).not.toHaveBeenCalled();
-    consoleWarnSpy.mockRestore();
+    expect(consoleWarn).not.toHaveBeenCalled();
+    consoleWarn.mockRestore();
   });
 });

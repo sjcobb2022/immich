@@ -13,6 +13,8 @@ import {
   sql,
 } from 'kysely';
 import { PostgresJSDialect } from 'kysely-postgres-js';
+import { KyselyReplicationDialect } from 'kysely-replication';
+import { RoundRobinReplicaStrategy } from 'kysely-replication/strategy/round-robin';
 import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
 import { Notice, PostgresError } from 'postgres';
 import { columns, lockableProperties, LockableProperty, Person } from 'src/database';
@@ -22,16 +24,10 @@ import { AssetSearchBuilderOptions } from 'src/repositories/search.repository';
 import { DB } from 'src/schema';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table';
 import { AudioStreamInfo, VectorExtension, VideoFormat, VideoPacketInfo, VideoStreamInfo } from 'src/types';
-import { KyselyReplicationDialect } from 'kysely-replication'
-import { RoundRobinReplicaStrategy } from 'kysely-replication/strategy/round-robin'
 
-function mapNonEmpty<T, U>(
-  arr: readonly [T, ...T[]],
-  fn: (item: T) => U,
-): readonly [U, ...U[]] {
-  return arr.map(item => fn(item)) as unknown as readonly [U, ...U[]];
+function mapNonEmpty<T, U>(arr: readonly [T, ...T[]], fn: (item: T) => U): readonly [U, ...U[]] {
+  return arr.map((item) => fn(item)) as unknown as readonly [U, ...U[]];
 }
-
 
 const createNotice = (label: string) => (notice: Notice) => {
   if (notice.severity !== 'NOTICE') {
@@ -98,7 +94,6 @@ export const getReplicatedKyselyConfig = (
     log: queryLogger,
   };
 };
-
 
 export const asUuid = (id: string | Expression<string>) => sql<string>`${id}::uuid`;
 

@@ -248,20 +248,20 @@ const getEnv = (): EnvData => {
     r.connectionType === 'url'
       ? { connectionType: 'url', url: r.url }
       : {
-        connectionType: 'parts',
-        host: r.host,
-        port: r.port,
-        username: r.username,
-        password: r.password,
-        database: r.databaseName,
-        ssl: r.sslMode || undefined,
-      },
+          connectionType: 'parts',
+          host: r.host,
+          port: r.port,
+          username: r.username,
+          password: r.password,
+          database: r.databaseName,
+          ssl: r.sslMode || undefined,
+        },
   );
 
   const databaseReplicas: [DatabaseConnectionParams, ...DatabaseConnectionParams[]] | undefined =
-  replicaConnections.length > 0
-    ? (replicaConnections as [DatabaseConnectionParams, ...DatabaseConnectionParams[]])
-    : undefined;
+    replicaConnections.length > 0
+      ? (replicaConnections as [DatabaseConnectionParams, ...DatabaseConnectionParams[]])
+      : undefined;
 
   let vectorExtension: VectorExtension | undefined;
   if (dto.DB_VECTOR_EXTENSION) {

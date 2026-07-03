@@ -138,7 +138,7 @@ export const EnvSchema = z
   .superRefine((env, ctx) => {
     if (env.DB_REPLICATION_ENABLED && env.DB_REPLICAS.length === 0) {
       ctx.addIssue({
-        code: "custom",
+        code: 'custom',
         path: ['DB_REPLICAS'],
         message: 'At least one DB_REPLICA_<n>_* must be configured when DB_REPLICATION_ENABLED=true',
       });

@@ -36,37 +36,33 @@ const trustedProxiesSchema = z
 
 const ReplicaSchema = z.union([
   z.object({
-    connectionType: z.literal('url'),
-    url: z.string().min(1),
-  }),
-  z.object({
-    connectionType: z.literal('parts'),
+    connectionType: z.literal('parts'), // We require a unique host.
     host: z.string().min(1),
-    port: z.coerce.number().int().positive().default(5432),
-    username: z.string().min(1),
-    password: z.string().min(1),
-    databaseName: z.string().min(1),
+    port: z.coerce.number().int().positive().optional(),
+    username: z.string().min(1).optional(),
+    password: z.string().min(1).optional(),
+    databaseName: z.string().min(1).optional(),
     sslMode: DatabaseSslModeSchema.optional(),
   }),
+  z.object({ connectionType: z.literal('url'), url: z.string().min(1) }),
 ]);
 
 const ReplicasFromEnvSchema = z.preprocess((input) => {
   const env = input as Record<string, unknown>;
   const keys = Object.keys(env);
-
   const indices = keys
     .map((k) => k.match(/^DB_REPLICA_(\d+)_(?:HOSTNAME|PORT|USERNAME|PASSWORD|DATABASE_NAME|SSL_MODE|URL)$/)?.[1])
     .filter((v): v is string => !!v)
     .map(Number)
     .filter((v, i, arr) => arr.indexOf(v) === i)
     .sort((a, b) => a - b);
-
   return indices.map((i) => {
     const url = env[`DB_REPLICA_${i}_URL`];
     if (url) {
-      return { url };
+      return { connectionType: 'url', url };
     }
     return {
+      connectionType: 'parts',
       host: env[`DB_REPLICA_${i}_HOSTNAME`],
       port: env[`DB_REPLICA_${i}_PORT`],
       username: env[`DB_REPLICA_${i}_USERNAME`],
@@ -131,10 +127,30 @@ export const EnvSchema = z
     REDIS_SOCKET: z.string().optional(),
     REDIS_URL: z.string().optional(),
   })
-  .transform((env) => ({
-    ...env,
-    DB_REPLICAS: ReplicasFromEnvSchema.parse(env), // fully zod-driven extraction
-  }))
+  .loose()
+  .transform((env, ctx) => {
+    let parsed = ReplicasFromEnvSchema.safeParse(env);
+
+    if(!parsed.success) {
+      parsed.error.issues.forEach(e => {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['DB_REPLICAS'],
+          message: "Invalid DB replica configuration",
+        })
+      });
+
+      return {
+       ...env,
+       DB_REPLICAS: [],
+      }
+    }
+
+    return {
+      ...env,
+      DB_REPLICAS: parsed.data,
+    }
+  })
   .superRefine((env, ctx) => {
     if (env.DB_REPLICATION_ENABLED && env.DB_REPLICAS.length === 0) {
       ctx.addIssue({

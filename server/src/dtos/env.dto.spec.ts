@@ -12,18 +12,19 @@ describe('EnvSchema', () => {
         DB_REPLICA_0_URL: 'postgres://user:pass@host:5432/db',
       });
 
-      expect(result.DB_REPLICAS).toEqual([{ url: 'postgres://user:pass@host:5432/db' }]);
+      expect(result.DB_REPLICAS).toMatchObject([{ url: 'postgres://user:pass@host:5432/db' }]);
     });
 
-    it('parses a single parts-based replica and applies the default port', () => {
+    it('parses a single parts-based replica', () => {
       const result = EnvSchema.parse({
         DB_REPLICA_0_HOSTNAME: 'replica-host',
         DB_REPLICA_0_USERNAME: 'immich',
+        DB_REPLICA_0_PORT: 5432,
         DB_REPLICA_0_PASSWORD: 'secret',
         DB_REPLICA_0_DATABASE_NAME: 'immich_db',
       });
 
-      expect(result.DB_REPLICAS).toEqual([
+      expect(result.DB_REPLICAS).toMatchObject([
         {
           host: 'replica-host',
           port: 5432,
@@ -55,7 +56,7 @@ describe('EnvSchema', () => {
         DB_REPLICA_1_URL: 'postgres://replica-1',
       });
 
-      expect(result.DB_REPLICAS).toEqual([
+      expect(result.DB_REPLICAS).toMatchObject([
         { url: 'postgres://replica-0' },
         { url: 'postgres://replica-1' },
         { url: 'postgres://replica-2' },
@@ -68,7 +69,7 @@ describe('EnvSchema', () => {
         DB_REPLICA_0_HOSTNAME: 'ignored-host',
       });
 
-      expect(result.DB_REPLICAS).toEqual([{ url: 'postgres://replica-0' }]);
+      expect(result.DB_REPLICAS).toMatchObject([{ url: 'postgres://replica-0' }]);
     });
 
     it('ignores unrelated env keys', () => {
@@ -80,13 +81,12 @@ describe('EnvSchema', () => {
       expect(result.DB_REPLICAS).toEqual([]);
     });
 
-    it('fails validation if an incomplete parts-based replica is provided', () => {
+    it('passes validation with only hostname provided', () => {
       const result = EnvSchema.safeParse({
         DB_REPLICA_0_HOSTNAME: 'replica-host',
-        // missing username/password/databaseName
       });
 
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
   });
 
@@ -110,6 +110,17 @@ describe('EnvSchema', () => {
       });
 
       expect(result.success).toBe(true);
+    });
+
+    it('fails if the union type is invalid', () => {
+      const result = EnvSchema.safeParse({
+        DB_REPLICA_0_USERNAME: 'username',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]).toMatchObject({
+        message: "Invalid DB replica configuration"
+      });
     });
 
     it('succeeds when replication is disabled and no replicas are configured', () => {

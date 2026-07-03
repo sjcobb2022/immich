@@ -147,18 +147,18 @@ describe('config.log (query logger)', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const config = getSingleInstanceKyselyConfig(primaryConnection);
 
-  if (typeof config.log === 'function') {
-    await config.log({
-      level: 'error',
-      error: new Error('error'),
-      queryDurationMillis: 12,
-      query: {
-        query: 'select 1',
-        queryId: 'test-query',
-        parameters: [],
-      } as any,
-    });
-  }
+    if (typeof config.log === 'function') {
+      await config.log({
+        level: 'error',
+        error: new Error('error'),
+        queryDurationMillis: 12,
+        query: {
+          query: 'select 1',
+          queryId: 'test-query',
+          parameters: [],
+        } as any,
+      });
+    }
 
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
     consoleErrorSpy.mockRestore();
@@ -168,19 +168,18 @@ describe('config.log (query logger)', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const config = getSingleInstanceKyselyConfig(primaryConnection);
 
-
-  if (typeof config.log === 'function') {
-    await config.log({
-      level: 'error',
-      error: { constraint_name: 'UQ_assets_owner_checksum' },
-      queryDurationMillis: 12,
-      query: {
-        query: 'insert into asset ...',
-        queryId: 'test-query',
-        parameters: [],
-      } as any,
-    });
-  }
+    if (typeof config.log === 'function') {
+      await config.log({
+        level: 'error',
+        error: { constraint_name: 'UQ_assets_owner_checksum' },
+        queryDurationMillis: 12,
+        query: {
+          query: 'insert into asset ...',
+          queryId: 'test-query',
+          parameters: [],
+        } as any,
+      });
+    }
 
     expect(consoleErrorSpy).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
@@ -190,17 +189,17 @@ describe('config.log (query logger)', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const config = getSingleInstanceKyselyConfig(primaryConnection);
 
-  if (typeof config.log === 'function') {
-    await config.log({
-      level: 'query',
-      queryDurationMillis: 12,
-      query: {
-        query: 'select 1',
-        queryId: 'test-query',
-        parameters: [],
-      } as any,
-    });
-  }
+    if (typeof config.log === 'function') {
+      await config.log({
+        level: 'query',
+        queryDurationMillis: 12,
+        query: {
+          query: 'select 1',
+          queryId: 'test-query',
+          parameters: [],
+        } as any,
+      });
+    }
 
     expect(consoleErrorSpy).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();

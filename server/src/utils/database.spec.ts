@@ -143,41 +143,64 @@ describe('getKyselyConfig', () => {
 describe('config.log (query logger)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('should log an error event to the console', () => {
+  it('should log an error event to the console', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const config = getSingleInstanceKyselyConfig(primaryConnection);
 
-    config.log?.({
+  if (typeof config.log === 'function') {
+    await config.log({
       level: 'error',
       error: new Error('boom'),
       queryDurationMillis: 12,
-      query: { sql: 'select 1', parameters: [] },
-    } as any);
+      query: {
+        query: 'select 1',
+        queryId: 'test-query',
+        parameters: [],
+      } as any,
+    });
+  }
 
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
     consoleErrorSpy.mockRestore();
   });
 
-  it('should suppress logging for asset checksum constraint violations', () => {
+  it('should suppress logging for asset checksum constraint violations', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const config = getSingleInstanceKyselyConfig(primaryConnection);
 
-    config.log?.({
+
+  if (typeof config.log === 'function') {
+    await config.log({
       level: 'error',
       error: { constraint_name: 'UQ_assets_owner_checksum' },
       queryDurationMillis: 12,
-      query: { sql: 'insert into asset ...', parameters: [] },
-    } as any);
+      query: {
+        query: 'insert into asset ...',
+        queryId: 'test-query',
+        parameters: [],
+      } as any,
+    });
+  }
 
     expect(consoleErrorSpy).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });
 
-  it('should not log anything for non-error level events', () => {
+  it('should not log anything for non-error level events', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const config = getSingleInstanceKyselyConfig(primaryConnection);
 
-    config.log?.({ level: 'query', query: { sql: 'select 1', parameters: [] } } as any);
+  if (typeof config.log === 'function') {
+    await config.log({
+      level: 'query',
+      queryDurationMillis: 12,
+      query: {
+        query: 'select 1',
+        queryId: 'test-query',
+        parameters: [],
+      } as any,
+    });
+  }
 
     expect(consoleErrorSpy).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();

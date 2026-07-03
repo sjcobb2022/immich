@@ -1,4 +1,4 @@
-import { EnvSchema } from 'src/config'; // adjust path to wherever EnvSchema actually lives
+import { EnvSchema } from 'src/dtos/env.dto';
 
 describe('EnvSchema', () => {
   describe('DB_REPLICAS', () => {
